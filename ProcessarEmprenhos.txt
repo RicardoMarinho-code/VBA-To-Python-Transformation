@@ -1,0 +1,498 @@
+Option Explicit
+
+Rem ========== CONSTANTES GLOBAIS ==========
+Private Const ABA_CORH As String = "ajustada CORH"
+Private Const ABA_SALDOS As String = "SALDOS DE EMPENHO"
+Private Const LINHA_INICIO_SALDOS As Long = 7
+
+Rem ========== PROCEDIMENTO PRINCIPAL ==========
+Public Sub ProcessarEmpenhos()
+
+Rem Declaracao de variaveis principais
+Dim wsCORH As Worksheet
+Dim wsSaldos As Worksheet
+Dim wsLog As Worksheet
+Dim ultimaLinhaCORH As Long
+Dim ultimaLinhaSaldos As Long
+Dim i As Long, j As Long, k As Long
+Dim contrato As String
+Dim municipio As String
+Dim municipioNorm As String
+Dim valorTotal As Double
+Dim chave As String
+
+Rem Dicionarios para armazenar dados
+Dim dictNotas As Object
+Dim dictFontes As Object
+Dim dictSaldos As Object
+Dim dictAnos As Object
+Dim dictContagem As Object
+Dim dictSaldosUsados As Object
+
+Rem Variaveis de processamento
+Dim linhasInseridas As Long
+Dim empenhosUsados As Long
+Dim naoEncontrados As Long
+Dim linhaLog As Long
+Dim tempoInicio As Double
+Dim valorRestante As Double
+Dim valorUsar As Double
+Dim saldoAtual As Double
+Dim notaEmpenho As String
+Dim fonte As String
+Dim ano As Integer
+Dim competencia As Integer
+Dim encontrado As Boolean
+
+Rem Variaveis para leitura de saldos
+Dim dadosSaldos As Variant
+Dim contratoSaldo As String
+Dim municipioSaldo As String
+Dim municipioSaldoNorm As String
+Dim saldoO As Double
+Dim saldoQ As Double
+Dim saldoFinal As Double
+Dim chaveEmpenho As String
+Dim numEmp As Long
+Dim idx As Long
+
+Rem Variaveis para ordenacao
+Dim arrNotas As Variant
+Dim arrFontes As Variant
+Dim arrSaldos As Variant
+Dim arrAnos As Variant
+Dim tempStr As String
+Dim tempDbl As Double
+Dim tempInt As Integer
+
+On Error GoTo TratarErro
+
+Rem Configuracoes de performance
+tempoInicio = Timer
+Application.ScreenUpdating = False
+Application.Calculation = xlCalculationManual
+Application.EnableEvents = False
+
+Rem Obter referencias das planilhas
+Set wsCORH = ThisWorkbook.Worksheets(ABA_CORH)
+Set wsSaldos = ThisWorkbook.Worksheets(ABA_SALDOS)
+
+Rem Criar dicionarios
+Set dictNotas = CreateObject("Scripting.Dictionary")
+Set dictFontes = CreateObject("Scripting.Dictionary")
+Set dictSaldos = CreateObject("Scripting.Dictionary")
+Set dictAnos = CreateObject("Scripting.Dictionary")
+Set dictContagem = CreateObject("Scripting.Dictionary")
+Set dictSaldosUsados = CreateObject("Scripting.Dictionary")
+
+Rem Encontrar ultima linha de cada aba
+ultimaLinhaCORH = wsCORH.Cells(wsCORH.Rows.Count, "A").End(xlUp).Row
+ultimaLinhaSaldos = wsSaldos.Cells(wsSaldos.Rows.Count, "A").End(xlUp).Row
+
+Rem Criar cabecalhos das novas colunas
+If wsCORH.Cells(5, 15).Value = "" Then wsCORH.Cells(5, 15).Value = "Saldo utilizado NE"
+If wsCORH.Cells(5, 16).Value = "" Then wsCORH.Cells(5, 16).Value = "Saldo remanescente NE"
+If wsCORH.Cells(5, 17).Value = "" Then wsCORH.Cells(5, 17).Value = "Controle Macro"
+
+Rem Criar aba de LOG
+Set wsLog = CriarAbaLog()
+linhaLog = 2
+
+Rem Carregar dados de saldos em array para performance
+dadosSaldos = wsSaldos.Range("A" & LINHA_INICIO_SALDOS & ":Q" & ultimaLinhaSaldos).Value
+
+Rem Loop para carregar empenhos nos dicionarios
+For i = 1 To UBound(dadosSaldos, 1)
+    contratoSaldo = Trim(CStr(dadosSaldos(i, 1) & ""))
+    If contratoSaldo = "" Then GoTo ProximoSaldo
+    
+    municipioSaldo = Trim(CStr(dadosSaldos(i, 13) & ""))
+    municipioSaldoNorm = NormalizarTexto(municipioSaldo)
+    
+    notaEmpenho = Trim(CStr(dadosSaldos(i, 9) & ""))
+    If notaEmpenho = "" Then GoTo ProximoSaldo
+    
+    fonte = Trim(CStr(dadosSaldos(i, 7) & ""))
+    
+    saldoO = 0
+    saldoQ = 0
+    If IsNumeric(dadosSaldos(i, 15)) Then saldoO = CDbl(dadosSaldos(i, 15))
+    If IsNumeric(dadosSaldos(i, 17)) Then saldoQ = CDbl(dadosSaldos(i, 17))
+    
+    Rem Se coluna Q tem valor usa Q senao usa O
+    If saldoQ > 0 Then
+        saldoFinal = saldoQ
+    Else
+        saldoFinal = saldoO
+    End If
+    
+    If saldoFinal <= 0 Then GoTo ProximoSaldo
+
+    Rem Obter ano do empenho
+    ano = ExtrairAnoEmpenho(notaEmpenho)
+
+    Rem Considerar somente empenhos de 2025 e 2026
+    If ano < 2025 Or ano > 2026 Then GoTo ProximoSaldo
+
+    Rem Criar chave de busca
+    chave = contratoSaldo & "_" & municipioSaldoNorm
+    
+    Rem Obter indice para esta chave
+    If dictContagem.Exists(chave) Then
+        numEmp = dictContagem(chave) + 1
+    Else
+        numEmp = 1
+    End If
+    dictContagem(chave) = numEmp
+    
+    Rem Armazenar dados com chave indexada
+    chaveEmpenho = chave & "_" & numEmp
+    dictNotas(chaveEmpenho) = notaEmpenho
+    dictFontes(chaveEmpenho) = fonte
+    dictSaldos(chaveEmpenho) = saldoFinal
+    dictAnos(chaveEmpenho) = ano
+    
+ProximoSaldo:
+Next i
+
+Rem Inicializar contadores
+linhasInseridas = 0
+empenhosUsados = 0
+naoEncontrados = 0
+
+Rem Processar linhas CORH de baixo para cima
+For i = ultimaLinhaCORH To 2 Step -1
+    contrato = Trim(CStr(wsCORH.Cells(i, 1).Value & ""))
+    If contrato = "" Then GoTo ProximaLinha
+    
+    '=================================================
+    ' EVITA REPROCESSAR LINHAS JA TRATADAS
+    ' Se a coluna H (Nota de Empenho) ja possui valor,
+    ' significa que a linha ja foi processada.
+    '=================================================
+    If Trim(CStr(wsCORH.Cells(i, 8).Value & "")) <> "" Then
+        GoTo ProximaLinha
+    End If
+
+    municipio = Trim(CStr(wsCORH.Cells(i, 3).Value & ""))
+    municipioNorm = NormalizarTexto(municipio)
+    
+    valorTotal = 0
+    If IsNumeric(wsCORH.Cells(i, 13).Value) Then
+        valorTotal = CDbl(wsCORH.Cells(i, 13).Value)
+    End If
+    
+    If valorTotal <= 0 Then GoTo ProximaLinha
+    
+    chave = contrato & "_" & municipioNorm
+    
+    Rem Verificar se existe correspondencia
+    If Not dictContagem.Exists(chave) Then
+        wsCORH.Range("A" & i & ":P" & i).Interior.Color = RGB(255, 255, 0)
+        wsLog.Cells(linhaLog, 1).Value = i
+        wsLog.Cells(linhaLog, 2).Value = contrato
+        wsLog.Cells(linhaLog, 3).Value = municipio
+        wsLog.Cells(linhaLog, 4).Value = valorTotal
+        wsLog.Cells(linhaLog, 5).Value = "Contrato/Municipio nao encontrado"
+        linhaLog = linhaLog + 1
+        naoEncontrados = naoEncontrados + 1
+        GoTo ProximaLinha
+    End If
+    
+    numEmp = dictContagem(chave)
+    
+    Rem Criar arrays para ordenacao
+    ReDim arrNotas(1 To numEmp)
+    ReDim arrFontes(1 To numEmp)
+    ReDim arrSaldos(1 To numEmp)
+    ReDim arrAnos(1 To numEmp)
+    
+    For j = 1 To numEmp
+        chaveEmpenho = chave & "_" & j
+        arrNotas(j) = dictNotas(chaveEmpenho)
+        arrFontes(j) = dictFontes(chaveEmpenho)
+        arrSaldos(j) = dictSaldos(chaveEmpenho)
+        arrAnos(j) = dictAnos(chaveEmpenho)
+    Next j
+    
+    Rem Ordenar por ano mais antigo primeiro usando bubble sort
+    For j = 1 To numEmp - 1
+        For k = j + 1 To numEmp
+            If arrAnos(k) < arrAnos(j) Then
+                tempStr = arrNotas(j)
+                arrNotas(j) = arrNotas(k)
+                arrNotas(k) = tempStr
+                
+                tempStr = arrFontes(j)
+                arrFontes(j) = arrFontes(k)
+                arrFontes(k) = tempStr
+                
+                tempDbl = arrSaldos(j)
+                arrSaldos(j) = arrSaldos(k)
+                arrSaldos(k) = tempDbl
+                
+                tempInt = arrAnos(j)
+                arrAnos(j) = arrAnos(k)
+                arrAnos(k) = tempInt
+            End If
+        Next k
+    Next j
+    
+    valorRestante = valorTotal
+    encontrado = False
+    
+    Rem Distribuir valor entre empenhos disponiveis
+    For j = 1 To numEmp
+        If valorRestante <= 0 Then Exit For
+        
+        notaEmpenho = arrNotas(j)
+        fonte = arrFontes(j)
+        ano = arrAnos(j)
+        
+        Rem Verificar saldo atual do empenho
+        If dictSaldosUsados.Exists(notaEmpenho) Then
+            saldoAtual = dictSaldosUsados(notaEmpenho)
+        Else
+            saldoAtual = arrSaldos(j)
+        End If
+        
+        If saldoAtual <= 0 Then GoTo ProximoEmpenho
+        
+        Rem Calcular valor a usar
+        If valorRestante <= saldoAtual Then
+            valorUsar = valorRestante
+        Else
+            valorUsar = saldoAtual
+        End If
+        
+        Rem Definir competencia pelo ano
+        If ano >= 2026 Then
+            competencia = 3
+        Else
+            competencia = 2
+        End If
+        
+        If encontrado Then
+
+            Rem Inserir nova linha para segundo empenho em diante
+            wsCORH.Rows(i + 1).Insert Shift:=xlDown
+            wsCORH.Rows(i).Copy Destination:=wsCORH.Rows(i + 1)
+
+            linhasInseridas = linhasInseridas + 1
+
+            wsCORH.Cells(i + 1, 8).Value = Mid(notaEmpenho, 12)
+            wsCORH.Cells(i + 1, 10).Value = fonte
+            wsCORH.Cells(i + 1, 12).Value = competencia
+            wsCORH.Cells(i + 1, 15).Value = valorUsar
+            wsCORH.Cells(i + 1, 16).Value = saldoAtual - valorUsar
+            wsCORH.Cells(i + 1, 15).NumberFormat = "#,##0.00"
+            wsCORH.Cells(i + 1, 16).NumberFormat = "#,##0.00"
+
+            wsCORH.Cells(i, 17).ClearContents
+
+            Rem MARCA LINHA INSERIDA PELA MACRO
+            wsCORH.Cells(i + 1, 17).Value = "LINHA ACRESCENTADA +1 EMPENHO"
+
+        Else
+            Rem Atualizar linha existente
+            wsCORH.Cells(i, 8).Value = Mid(notaEmpenho, 12)
+            wsCORH.Cells(i, 10).Value = fonte
+            wsCORH.Cells(i, 12).Value = competencia
+            wsCORH.Cells(i, 15).Value = valorUsar
+            wsCORH.Cells(i, 16).Value = saldoAtual - valorUsar
+            wsCORH.Cells(i, 15).NumberFormat = "#,##0.00"
+            wsCORH.Cells(i, 16).NumberFormat = "#,##0.00"
+        End If
+        
+        Rem Atualizar saldo usado
+        dictSaldosUsados(notaEmpenho) = saldoAtual - valorUsar
+        valorRestante = valorRestante - valorUsar
+        empenhosUsados = empenhosUsados + 1
+        encontrado = True
+        
+ProximoEmpenho:
+    Next j
+    
+    Rem Verificar se sobrou valor sem saldo
+    If valorRestante > 0.01 And encontrado Then
+        wsCORH.Range("A" & i & ":P" & i).Interior.Color = RGB(255, 200, 100)
+        wsLog.Cells(linhaLog, 1).Value = i
+        wsLog.Cells(linhaLog, 2).Value = contrato
+        wsLog.Cells(linhaLog, 3).Value = municipio
+        wsLog.Cells(linhaLog, 4).Value = valorRestante
+        wsLog.Cells(linhaLog, 5).Value = "Saldo insuficiente"
+        linhaLog = linhaLog + 1
+    End If
+    
+ProximaLinha:
+Next i
+
+Rem ==========================================
+Rem FORMATACAO FINAL
+Rem ==========================================
+
+Dim ultimaLinhaFinal As Long
+Dim rngDados As Range
+Dim rngCabecalho As Range
+
+ultimaLinhaFinal = wsCORH.Cells(wsCORH.Rows.Count, "A").End(xlUp).Row
+
+'Intervalo completo da tabela
+Set rngDados = wsCORH.Range("A5:Q" & ultimaLinhaFinal)
+
+'Aplicar bordas em todas as células
+With rngDados.Borders
+    .LineStyle = xlContinuous
+    .Weight = xlThin
+    .ColorIndex = xlAutomatic
+End With
+
+'Cabeçalho
+Set rngCabecalho = wsCORH.Range("A5:Q5")
+
+With rngCabecalho
+    .Font.Bold = True
+    .HorizontalAlignment = xlCenter
+    .VerticalAlignment = xlCenter
+End With
+
+'Ajustar largura das colunas automaticamente
+wsCORH.Columns("A:Q").AutoFit
+
+'Formatar colunas O e P
+wsCORH.Columns("O:P").NumberFormat = "#,##0.00"
+
+rngDados.VerticalAlignment = xlCenter
+
+'Ajustrar largura das colunas do LOG
+wsLog.Columns("A:E").AutoFit
+
+Rem Restaurar configuracoes
+Application.ScreenUpdating = True
+Application.Calculation = xlCalculationAutomatic
+Application.EnableEvents = True
+
+Rem Exibir resultado
+MsgBox "Processamento concluido!" & vbCrLf & vbCrLf & _
+    "Linhas originais: " & (ultimaLinhaCORH - 1) & vbCrLf & _
+    "Linhas inseridas: " & linhasInseridas & vbCrLf & _
+    "Empenhos usados: " & empenhosUsados & vbCrLf & _
+    "Nao encontrados: " & naoEncontrados & vbCrLf & _
+    "Tempo: " & Format(Timer - tempoInicio, "0.00") & " segundos", _
+    vbInformation, "Concluido"
+
+Exit Sub
+
+TratarErro:
+Application.ScreenUpdating = True
+Application.Calculation = xlCalculationAutomatic
+Application.EnableEvents = True
+MsgBox "Erro: " & Err.Description & vbCrLf & "Linha aproximada: " & i, vbCritical, "Erro"
+
+End Sub
+
+Rem ========== FUNCAO CRIAR ABA LOG ==========
+Private Function CriarAbaLog() As Worksheet
+Dim ws As Worksheet
+On Error Resume Next
+Set ws = ThisWorkbook.Worksheets("LOG")
+If Not ws Is Nothing Then
+    ws.Cells.Clear
+Else
+    Set ws = ThisWorkbook.Worksheets.Add
+    ws.Name = "LOG"
+End If
+On Error GoTo 0
+ws.Cells(1, 1).Value = "Linha"
+ws.Cells(1, 2).Value = "Contrato"
+ws.Cells(1, 3).Value = "Municipio"
+ws.Cells(1, 4).Value = "Valor faltante"
+ws.Cells(1, 5).Value = "Motivo"
+ws.Range("A1:E1").Font.Bold = True
+ws.Range("A1:E1").Interior.Color = RGB(200, 200, 200)
+
+'Centralizar cabeçalho
+With ws.Range("A1:E1")
+    .HorizontalAlignment = xlCenter
+    .VerticalAlignment = xlCenter
+End With
+
+'Ajustar largura das colunas automaticamente
+ws.Columns("A:E").AutoFit
+
+Set CriarAbaLog = ws
+End Function
+
+Rem ========== FUNCAO NORMALIZAR TEXTO ==========
+Private Function NormalizarTexto(ByVal texto As String) As String
+Dim resultado As String
+resultado = UCase(Trim(texto))
+Rem Remover acentos A
+resultado = Replace(resultado, Chr(192), "A")
+resultado = Replace(resultado, Chr(193), "A")
+resultado = Replace(resultado, Chr(194), "A")
+resultado = Replace(resultado, Chr(195), "A")
+resultado = Replace(resultado, Chr(224), "A")
+resultado = Replace(resultado, Chr(225), "A")
+resultado = Replace(resultado, Chr(226), "A")
+resultado = Replace(resultado, Chr(227), "A")
+Rem Remover acentos E
+resultado = Replace(resultado, Chr(200), "E")
+resultado = Replace(resultado, Chr(201), "E")
+resultado = Replace(resultado, Chr(202), "E")
+resultado = Replace(resultado, Chr(232), "E")
+resultado = Replace(resultado, Chr(233), "E")
+resultado = Replace(resultado, Chr(234), "E")
+Rem Remover acentos I
+resultado = Replace(resultado, Chr(204), "I")
+resultado = Replace(resultado, Chr(205), "I")
+resultado = Replace(resultado, Chr(206), "I")
+resultado = Replace(resultado, Chr(236), "I")
+resultado = Replace(resultado, Chr(237), "I")
+resultado = Replace(resultado, Chr(238), "I")
+Rem Remover acentos O
+resultado = Replace(resultado, Chr(210), "O")
+resultado = Replace(resultado, Chr(211), "O")
+resultado = Replace(resultado, Chr(212), "O")
+resultado = Replace(resultado, Chr(213), "O")
+resultado = Replace(resultado, Chr(242), "O")
+resultado = Replace(resultado, Chr(243), "O")
+resultado = Replace(resultado, Chr(244), "O")
+resultado = Replace(resultado, Chr(245), "O")
+Rem Remover acentos U
+resultado = Replace(resultado, Chr(217), "U")
+resultado = Replace(resultado, Chr(218), "U")
+resultado = Replace(resultado, Chr(219), "U")
+resultado = Replace(resultado, Chr(249), "U")
+resultado = Replace(resultado, Chr(250), "U")
+resultado = Replace(resultado, Chr(251), "U")
+Rem Remover cedilha e til no N
+resultado = Replace(resultado, Chr(199), "C")
+resultado = Replace(resultado, Chr(231), "C")
+resultado = Replace(resultado, Chr(209), "N")
+resultado = Replace(resultado, Chr(241), "N")
+Rem Remover hifen
+resultado = Replace(resultado, "-", " ")
+Rem Remover espacos duplos
+Do While InStr(resultado, "  ") > 0
+    resultado = Replace(resultado, "  ", " ")
+Loop
+NormalizarTexto = Trim(resultado)
+End Function
+
+Rem ========== FUNCAO EXTRAIR ANO DO EMPENHO ==========
+Private Function ExtrairAnoEmpenho(ByVal notaEmpenho As String) As Integer
+Dim anoStr As String
+Dim anoNum As Integer
+anoNum = 2020
+If Len(notaEmpenho) >= 15 Then
+    anoStr = Mid(notaEmpenho, 12, 4)
+    If IsNumeric(anoStr) Then
+        anoNum = CInt(anoStr)
+        If anoNum < 2000 Or anoNum > 2100 Then anoNum = 2020
+    End If
+End If
+ExtrairAnoEmpenho = anoNum
+End Function
+
+

@@ -1,0 +1,75 @@
+Option Explicit
+
+Private Const ABA_CORH As String = "ajustada CORH"
+
+Public Sub ResetarEmpenhos()
+
+    Dim ws As Worksheet
+    Dim ultimaLinha As Long
+    Dim i As Long
+    Dim linhasExcluidas As Long
+
+    On Error GoTo TratarErro
+
+    Application.ScreenUpdating = False
+    Application.Calculation = xlCalculationManual
+    Application.EnableEvents = False
+
+    Set ws = ThisWorkbook.Worksheets(ABA_CORH)
+
+    ultimaLinha = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+
+    '=========================================
+    ' EXCLUI APENAS LINHAS GERADAS PELA MACRO
+    '=========================================
+    For i = ultimaLinha To 2 Step -1
+
+        If Trim(CStr(ws.Cells(i, 17).Value & "")) = "LINHA ACRESCENTADA +1 EMPENHO" Then
+
+            ws.Rows(i).Delete
+            linhasExcluidas = linhasExcluidas + 1
+
+        End If
+
+    Next i
+
+    ultimaLinha = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+
+    '=========================================
+    ' LIMPAR CAMPOS PREENCHIDOS PELA MACRO
+    '=========================================
+
+    If ultimaLinha >= 6 Then
+
+    ws.Range("H6:H" & ultimaLinha).ClearContents
+    ws.Range("J6:J" & ultimaLinha).ClearContents
+    ws.Range("L6:L" & ultimaLinha).ClearContents
+
+End If
+
+Rem Remover colunas criadas pela macro
+ws.Columns("Q").Delete
+ws.Columns("P").Delete
+ws.Columns("O").Delete
+
+    Application.ScreenUpdating = True
+    Application.Calculation = xlCalculationAutomatic
+    Application.EnableEvents = True
+
+    MsgBox _
+        "Reset concluído!" & vbCrLf & vbCrLf & _
+        "Linhas removidas: " & linhasExcluidas, _
+        vbInformation
+
+    Exit Sub
+
+TratarErro:
+
+    Application.ScreenUpdating = True
+    Application.Calculation = xlCalculationAutomatic
+    Application.EnableEvents = True
+
+    MsgBox "Erro: " & Err.Description, vbCritical
+
+End Sub
+

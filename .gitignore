@@ -1,2 +1,10 @@
 .env
-__pycache__
+__pycache__/
+*.pyc
+
+# Planilhas reais nunca entram no repositorio (apenas exemplos, se quiser)
+data/*
+!data/.gitkeep
+
+output/*
+!output/.gitkeep

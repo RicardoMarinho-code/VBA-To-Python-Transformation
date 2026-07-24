@@ -1,6 +1,7 @@
 import os
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SRC_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SRC_DIR)
 
 
 def _load_env(path):
@@ -16,10 +17,10 @@ def _load_env(path):
 
 
 def _resolve(p):
-    return p if os.path.isabs(p) else os.path.join(BASE_DIR, p)
+    return p if os.path.isabs(p) else os.path.join(PROJECT_ROOT, p)
 
 
-_load_env(os.path.join(BASE_DIR, ".env"))
+_load_env(os.path.join(PROJECT_ROOT, ".env"))
 
-WORKBOOK_PATH = _resolve(os.getenv("WORKBOOK_PATH", "planilha.xlsx"))
-REPORT_FILE = _resolve(os.getenv("REPORT_FILE", "relatorio_depuracao.csv"))
+WORKBOOK_PATH = _resolve(os.getenv("WORKBOOK_PATH", "data/planilha.xlsx"))
+REPORT_FILE = _resolve(os.getenv("REPORT_FILE", "output/relatorio_depuracao.csv"))

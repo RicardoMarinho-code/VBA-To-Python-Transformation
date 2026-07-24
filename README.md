@@ -36,8 +36,8 @@ pip install -r requirements.txt
 
 ## Configuração (`.env`)
 
-Os **nomes dos arquivos** não ficam no código — ficam em um arquivo `.env` na
-pasta do projeto. O `.env` é lido pelo `config.py` (sem depender de nenhuma
+Os **nomes/caminhos dos arquivos** não ficam no código — ficam em um arquivo
+`.env` na raiz do projeto, lido pelo `src/config.py` (sem depender de nenhuma
 biblioteca externa).
 
 Crie o seu `.env` a partir do exemplo:
@@ -49,19 +49,17 @@ cp .env.example .env
 E edite os valores:
 
 ```ini
-# Caminho (ou nome) do arquivo Excel a ser processado.
-# Se for só o nome, ele deve estar na mesma pasta destes scripts.
-WORKBOOK_PATH=Planilha de Financeiro.xlsm
+# Caminho do arquivo Excel a ser processado (dentro de data/).
+WORKBOOK_PATH=data/Planilha de Financeiro.xlsm
 
-# Nome do arquivo de relatório gerado pelo depurador.
-REPORT_FILE=relatorio_depuracao.csv
+# Arquivo de relatório gerado pelo depurador (dentro de output/).
+REPORT_FILE=output/relatorio_depuracao.csv
 ```
 
 Detalhes:
 
-- Se você informar só o **nome** do arquivo, ele é resolvido para um caminho
-  **absoluto** relativo à pasta dos scripts — então funciona rodando de qualquer
-  diretório.
+- Os caminhos são resolvidos em relação à **raiz do projeto** e viram caminhos
+  **absolutos** — então funciona rodando de qualquer diretório.
 - Variáveis de ambiente do sistema têm prioridade sobre o `.env` (dá para
   sobrescrever sem editar o arquivo).
 - O `.env` é **ignorado pelo git** (`.gitignore`); o `.env.example` é versionado
@@ -69,23 +67,24 @@ Detalhes:
 
 ## Como usar
 
-O fluxo recomendado é: **depurar → processar → (se precisar) resetar**.
+Rode os comandos a partir da **raiz do projeto**. O fluxo recomendado é:
+**depurar → processar → (se precisar) resetar**.
 
 ### 1. Depurar (simulação, não altera nada)
 
 ```bash
-python depurar_empenhos.py
+python src/depurar_empenhos.py
 ```
 
 Faz um *dry-run*: lê a planilha somente para leitura, **prevê** o que a macro faria
 e aponta os problemas (contrato/município não encontrado, saldo insuficiente,
-linhas já processadas). Também gera um relatório CSV (`REPORT_FILE`) com os
-problemas encontrados. **Não modifica a planilha.**
+linhas já processadas). Gera também um relatório CSV em `output/` com os problemas
+encontrados. **Não modifica a planilha.**
 
 ### 2. Processar
 
 ```bash
-python processar_empenhos.py
+python src/processar_empenhos.py
 ```
 
 Preenche a aba CORH, insere linhas quando um valor precisa de mais de um empenho,
@@ -95,13 +94,13 @@ arquivo** — feche o Excel antes de rodar.
 ### 3. Resetar (desfazer)
 
 ```bash
-python resetar_empenhos.py
+python src/resetar_empenhos.py
 ```
 
 Desfaz o processamento: exclui as linhas geradas pela macro, limpa os campos
 preenchidos e remove as colunas criadas (O, P, Q).
 
-> Você também pode importar as funções em outro script:
+> Você também pode importar as funções em outro script (com `src/` no path):
 > ```python
 > from processar_empenhos import process_commitments
 > from resetar_empenhos import reset_commitments
@@ -181,13 +180,21 @@ preenchidos e remove as colunas criadas (O, P, Q).
 
 ```
 VBA-Python-Transformation/
-├── processar_empenhos.py     # processamento (equivale à macro ProcessarEmpenhos)
-├── resetar_empenhos.py       # desfaz o processamento (macro ResetarEmpenhos)
-├── depurar_empenhos.py       # dry-run: prevê o resultado e lista problemas
-├── config.py                 # carrega o .env e resolve os caminhos
-├── .env                      # nomes dos arquivos (NÃO versionado)
-├── .env.example              # modelo do .env (versionado)
+├── README.md
 ├── requirements.txt          # dependências (openpyxl)
-├── ProcessarEmprenhos.txt    # macro VBA original (referência)
-└── ResetarEmpenhos.txt       # macro VBA original (referência)
+├── .env                      # nomes/caminhos dos arquivos (NÃO versionado)
+├── .env.example              # modelo do .env (versionado)
+├── .gitignore
+├── src/                      # código Python
+│   ├── config.py             # carrega o .env e resolve os caminhos
+│   ├── processar_empenhos.py # processamento (macro ProcessarEmpenhos)
+│   ├── resetar_empenhos.py   # desfaz o processamento (macro ResetarEmpenhos)
+│   └── depurar_empenhos.py   # dry-run: prevê o resultado e lista problemas
+├── data/                     # planilhas de entrada (.xlsm/.xlsx)
+│   └── <sua planilha>.xlsm
+├── output/                   # relatórios gerados pelo depurador
+├── vba/                      # macros VBA originais (referência)
+│   ├── ProcessarEmprenhos.txt
+│   └── ResetarEmpenhos.txt
+└── .git/
 ```

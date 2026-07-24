@@ -248,6 +248,7 @@ def debug(path=WORKBOOK_PATH):
     log.info("  Sem valor (puladas) ....... %d", summary["no_amount"])
 
     dest = REPORT_FILE
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
     with open(dest, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f, delimiter=";")
         w.writerow(["Linha", "Contrato", "Municipio", "Valor faltante", "Motivo"])

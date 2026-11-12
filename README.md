@@ -6,7 +6,7 @@ Python, usando [openpyxl](https://openpyxl.readthedocs.io/).
 O objetivo é, a partir das planilhas de **saldos de empenho**, preencher
 automaticamente a aba de trabalho (**CORH**) com a Nota de Empenho, a fonte, a
 competência e os valores utilizado/remanescente de cada empenho — distribuindo o
-valor de cada linha entre os empenhos disponíveis do mesmo contrato/município.
+valor de cada linha entre os empenhos disponíveis do mesmo contrato/município
 
 ---
 
